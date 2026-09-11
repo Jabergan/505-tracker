@@ -9,6 +9,7 @@ import type {
   ChangeOrderStatus,
   Job,
   JobSnapshot,
+  JobSummary,
   LineItem,
   Payment,
   PaymentMethod,
@@ -101,6 +102,10 @@ function mapJob(row: JobRow): Job {
   };
 }
 
+function mapSummary(row: JobRow): JobSummary {
+  return { id: row.id, name: row.name, address: row.address, city: row.city };
+}
+
 function mapCategory(row: CategoryRow): Category {
   return {
     id: row.id,
@@ -149,6 +154,28 @@ function mapCo(row: CoRow): ChangeOrder {
   };
 }
 
+async function setCurrentJobId(id: string): Promise<void> {
+  const sql = await getSql();
+  await sql.query(
+    `insert into app_state (key, value) values ('current_job_id', $1)
+     on conflict (key) do update set value = excluded.value`,
+    [id],
+  );
+}
+
+async function currentJobId(): Promise<string> {
+  const sql = await getSql();
+  const state = await sql<{ value: string }>`
+    select value from app_state where key = 'current_job_id'
+  `;
+  if (state[0]?.value) return state[0].value;
+  const jobs = await sql<{ id: string }>`select id from job order by updated_at desc limit 1`;
+  const id = jobs[0]?.id;
+  if (!id) throw new Error("No job file");
+  await setCurrentJobId(id);
+  return id;
+}
+
 async function ensureSeed(): Promise<void> {
   const sql = await getSql();
   const existing = await sql<{ c: number }>`select count(*)::int as c from job`;
@@ -187,11 +214,12 @@ async function ensureSeed(): Promise<void> {
   for (const item of SEED_ITEMS) {
     await sql.query(
       `insert into line_items (
-        id, category_id, name, vendor, original_budget_cents, committed_cents,
+        id, job_id, category_id, name, vendor, original_budget_cents, committed_cents,
         actual_cents, pct_complete, notes, sort_order
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [
         item.id,
+        SEED_JOB.id,
         item.categoryId,
         item.name,
         item.vendor,
@@ -215,16 +243,16 @@ async function ensureSeed(): Promise<void> {
 
   for (const co of SEED_COS) {
     await sql.query(
-      `insert into change_orders (line_item_id, title, amount_cents, status, reason)
-       values ($1,$2,$3,$4,$5)`,
-      [co.itemId, co.title, Math.round(co.amount * 100), co.status, co.reason],
+      `insert into change_orders (job_id, line_item_id, title, amount_cents, status, reason)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [SEED_JOB.id, co.itemId, co.title, Math.round(co.amount * 100), co.status, co.reason],
     );
   }
 
+  await setCurrentJobId(SEED_JOB.id);
+
   try {
-    await sql.query(
-      `select setval('line_items_id_seq', (select max(id) from line_items))`,
-    );
+    await sql.query(`select setval('line_items_id_seq', (select max(id) from line_items))`);
     await sql.query(
       `select setval('payments_id_seq', coalesce((select max(id) from payments), 1))`,
     );
@@ -236,18 +264,36 @@ async function ensureSeed(): Promise<void> {
   }
 }
 
-async function readSnapshot(): Promise<JobSnapshot> {
+async function listJobRows(): Promise<JobRow[]> {
+  const sql = await getSql();
+  return sql<JobRow>`select * from job order by updated_at desc, name`;
+}
+
+async function readSnapshot(jobId?: string): Promise<JobSnapshot> {
   await ensureSeed();
   const sql = await getSql();
-  const jobs = await sql<JobRow>`select * from job limit 1`;
-  const jobRow = jobs[0];
+  const id = jobId ?? (await currentJobId());
+  const jobRows = await listJobRows();
+  const jobRow = jobRows.find((j) => j.id === id) ?? jobRows[0];
   if (!jobRow) throw new Error("Job row missing after seed");
+  if (jobRow.id !== id) await setCurrentJobId(jobRow.id);
+
   const categories = await sql<CategoryRow>`select * from categories order by sort_order, id`;
-  const items = await sql<ItemRow>`select * from line_items order by sort_order, id`;
-  const payments = await sql<PaymentRow>`select * from payments order by paid_on desc, id desc`;
-  const changeOrders = await sql<CoRow>`select * from change_orders order by created_at desc, id desc`;
+  const items = await sql<ItemRow>`
+    select * from line_items where job_id = ${jobRow.id} order by sort_order, id
+  `;
+  const payments = await sql<PaymentRow>`
+    select p.* from payments p
+    join line_items li on li.id = p.line_item_id
+    where li.job_id = ${jobRow.id}
+    order by p.paid_on desc, p.id desc
+  `;
+  const changeOrders = await sql<CoRow>`
+    select * from change_orders where job_id = ${jobRow.id} order by created_at desc, id desc
+  `;
   return {
     job: mapJob(jobRow),
+    jobs: jobRows.map(mapSummary),
     categories: categories.map(mapCategory),
     items: items.map(mapItem),
     payments: payments.map(mapPayment),
@@ -258,6 +304,57 @@ async function readSnapshot(): Promise<JobSnapshot> {
 export const loadJob = createServerFn({ method: "GET" }).handler(async () => {
   return readSnapshot();
 });
+
+export const openJob = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    await ensureSeed();
+    const sql = await getSql();
+    const found = await sql<{ id: string }>`select id from job where id = ${data.id}`;
+    if (!found[0]) throw new Error("Job file not found");
+    await setCurrentJobId(data.id);
+    return readSnapshot(data.id);
+  });
+
+export const createJob = createServerFn({ method: "POST" }).handler(async () => {
+  await ensureSeed();
+  const sql = await getSql();
+  const existing = await listJobRows();
+  const untitled = existing.filter((j) => j.name.startsWith("Untitled job")).length;
+  const name = untitled === 0 ? "Untitled job" : `Untitled job ${untitled + 1}`;
+  const id = crypto.randomUUID();
+  await sql.query(
+    `insert into job (
+      id, name, address, city, beds, baths_tenths, sqft, stories,
+      land_cost_cents, target_sale_cents, start_date, target_close_date, notes
+    ) values ($1,$2,'','',0,20,0,1,0,0,null,null,'')`,
+    [id, name],
+  );
+  await setCurrentJobId(id);
+  return readSnapshot(id);
+});
+
+export const deleteJob = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    await ensureSeed();
+    const sql = await getSql();
+    const countRows = await sql<{ c: number }>`select count(*)::int as c from job`;
+    if ((countRows[0]?.c ?? 0) <= 1) {
+      throw new Error("Keep at least one job file");
+    }
+    await sql.query(`delete from change_orders where job_id = $1`, [data.id]);
+    await sql.query(`delete from line_items where job_id = $1`, [data.id]);
+    await sql.query(`delete from job where id = $1`, [data.id]);
+    const current = await sql<{ value: string }>`
+      select value from app_state where key = 'current_job_id'
+    `;
+    if (current[0]?.value === data.id) {
+      const next = await sql<{ id: string }>`select id from job order by updated_at desc limit 1`;
+      if (next[0]) await setCurrentJobId(next[0].id);
+    }
+    return readSnapshot();
+  });
 
 const jobPatch = z.object({
   name: z.string().min(1).max(120),
@@ -278,11 +375,13 @@ export const updateJob = createServerFn({ method: "POST" })
   .validator(jobPatch)
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const id = await currentJobId();
     await sql.query(
       `update job set
         name = $1, address = $2, city = $3, beds = $4, baths_tenths = $5,
         sqft = $6, stories = $7, land_cost_cents = $8, target_sale_cents = $9,
-        start_date = $10, target_close_date = $11, notes = $12, updated_at = now()`,
+        start_date = $10, target_close_date = $11, notes = $12, updated_at = now()
+       where id = $13`,
       [
         data.name,
         data.address,
@@ -296,9 +395,10 @@ export const updateJob = createServerFn({ method: "POST" })
         data.startDate,
         data.targetCloseDate,
         data.notes,
+        id,
       ],
     );
-    return readSnapshot();
+    return readSnapshot(id);
   });
 
 const itemInput = z.object({
@@ -316,12 +416,15 @@ export const createItem = createServerFn({ method: "POST" })
   .validator(itemInput)
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const jobId = await currentJobId();
     await sql.query(
       `insert into line_items (
-        category_id, name, vendor, original_budget_cents, committed_cents,
+        job_id, category_id, name, vendor, original_budget_cents, committed_cents,
         actual_cents, pct_complete, notes, sort_order
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8, coalesce((select max(sort_order)+1 from line_items), 1))`,
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,
+        coalesce((select max(sort_order)+1 from line_items where job_id = $1), 1))`,
       [
+        jobId,
         data.categoryId,
         data.name,
         data.vendor,
@@ -332,20 +435,22 @@ export const createItem = createServerFn({ method: "POST" })
         data.notes,
       ],
     );
-    return readSnapshot();
+    return readSnapshot(jobId);
   });
 
 export const updateItem = createServerFn({ method: "POST" })
   .validator(itemInput.extend({ id: z.number().int() }))
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const jobId = await currentJobId();
     await sql.query(
       `update line_items set
-        category_id = $2, name = $3, vendor = $4, original_budget_cents = $5,
-        committed_cents = $6, actual_cents = $7, pct_complete = $8, notes = $9
-       where id = $1`,
+        category_id = $3, name = $4, vendor = $5, original_budget_cents = $6,
+        committed_cents = $7, actual_cents = $8, pct_complete = $9, notes = $10
+       where id = $1 and job_id = $2`,
       [
         data.id,
+        jobId,
         data.categoryId,
         data.name,
         data.vendor,
@@ -356,15 +461,16 @@ export const updateItem = createServerFn({ method: "POST" })
         data.notes,
       ],
     );
-    return readSnapshot();
+    return readSnapshot(jobId);
   });
 
 export const deleteItem = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number().int() }))
   .handler(async ({ data }) => {
     const sql = await getSql();
-    await sql.query(`delete from line_items where id = $1`, [data.id]);
-    return readSnapshot();
+    const jobId = await currentJobId();
+    await sql.query(`delete from line_items where id = $1 and job_id = $2`, [data.id, jobId]);
+    return readSnapshot(jobId);
   });
 
 const paymentInput = z.object({
@@ -380,6 +486,11 @@ export const createPayment = createServerFn({ method: "POST" })
   .validator(paymentInput)
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const jobId = await currentJobId();
+    const owned = await sql<{ id: number }>`
+      select id from line_items where id = ${data.lineItemId} and job_id = ${jobId}
+    `;
+    if (!owned[0]) throw new Error("Line not on this job");
     await sql.query(
       `insert into payments (line_item_id, paid_on, amount_cents, payee, method, memo)
        values ($1,$2,$3,$4,$5,$6)`,
@@ -391,18 +502,23 @@ export const createPayment = createServerFn({ method: "POST" })
        ) where id = $1`,
       [data.lineItemId],
     );
-    return readSnapshot();
+    return readSnapshot(jobId);
   });
 
 export const deletePayment = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number().int() }))
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const jobId = await currentJobId();
     const rows = await sql<{ line_item_id: number }>`
-      delete from payments where id = ${data.id} returning line_item_id
+      select p.line_item_id
+      from payments p
+      join line_items li on li.id = p.line_item_id
+      where p.id = ${data.id} and li.job_id = ${jobId}
     `;
     const itemId = rows[0]?.line_item_id;
     if (itemId) {
+      await sql.query(`delete from payments where id = $1`, [data.id]);
       await sql.query(
         `update line_items set actual_cents = (
            select coalesce(sum(amount_cents), 0) from payments where line_item_id = $1
@@ -410,7 +526,7 @@ export const deletePayment = createServerFn({ method: "POST" })
         [itemId],
       );
     }
-    return readSnapshot();
+    return readSnapshot(jobId);
   });
 
 const coInput = z.object({
@@ -425,30 +541,34 @@ export const createChangeOrder = createServerFn({ method: "POST" })
   .validator(coInput)
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const jobId = await currentJobId();
     await sql.query(
-      `insert into change_orders (line_item_id, title, amount_cents, status, reason)
-       values ($1,$2,$3,$4,$5)`,
-      [data.lineItemId, data.title, data.amountCents, data.status, data.reason],
+      `insert into change_orders (job_id, line_item_id, title, amount_cents, status, reason)
+       values ($1,$2,$3,$4,$5,$6)`,
+      [jobId, data.lineItemId, data.title, data.amountCents, data.status, data.reason],
     );
-    return readSnapshot();
+    return readSnapshot(jobId);
   });
 
 export const updateChangeOrder = createServerFn({ method: "POST" })
   .validator(coInput.extend({ id: z.number().int() }))
   .handler(async ({ data }) => {
     const sql = await getSql();
+    const jobId = await currentJobId();
     await sql.query(
-      `update change_orders set line_item_id = $2, title = $3, amount_cents = $4, status = $5, reason = $6
-       where id = $1`,
-      [data.id, data.lineItemId, data.title, data.amountCents, data.status, data.reason],
+      `update change_orders
+       set line_item_id = $3, title = $4, amount_cents = $5, status = $6, reason = $7
+       where id = $1 and job_id = $2`,
+      [data.id, jobId, data.lineItemId, data.title, data.amountCents, data.status, data.reason],
     );
-    return readSnapshot();
+    return readSnapshot(jobId);
   });
 
 export const deleteChangeOrder = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.number().int() }))
   .handler(async ({ data }) => {
     const sql = await getSql();
-    await sql.query(`delete from change_orders where id = $1`, [data.id]);
-    return readSnapshot();
+    const jobId = await currentJobId();
+    await sql.query(`delete from change_orders where id = $1 and job_id = $2`, [data.id, jobId]);
+    return readSnapshot(jobId);
   });

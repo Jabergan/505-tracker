@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   Download,
+  FilePlus,
   Plus,
   Settings2,
   Trash2,
@@ -14,10 +16,13 @@ import { Field, MoneyField, NativeSelect, NotesField } from "@/components/tracke
 import {
   createChangeOrder,
   createItem,
+  createJob,
   createPayment,
   deleteChangeOrder,
   deleteItem,
+  deleteJob,
   deletePayment,
+  openJob,
   updateChangeOrder,
   updateItem,
   updateJob,
@@ -82,8 +87,8 @@ export function JobApp({ initial }: { initial: JobSnapshot }) {
         <div className="mx-auto flex max-w-6xl flex-col gap-5 px-4 py-5 sm:px-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="font-serif text-4xl leading-none tracking-tight text-ink sm:text-5xl">
-                505
+              <p className="truncate font-serif text-4xl leading-none tracking-tight text-ink sm:text-5xl">
+                {jobTitle(snap.job.name)}
               </p>
               <p className="mt-1 text-xs font-medium tracking-[0.22em] text-muted uppercase">
                 Spec house ledger
@@ -106,7 +111,7 @@ export function JobApp({ initial }: { initial: JobSnapshot }) {
               <Button
                 variant="ghost"
                 size="icon"
-                aria-label="Job settings"
+                aria-label="Job file"
                 onClick={() => setJobOpen(true)}
               >
                 <Settings2 />
@@ -219,6 +224,9 @@ export function JobApp({ initial }: { initial: JobSnapshot }) {
             return next;
           })
         }
+        onNew={() => run(() => createJob())}
+        onOpenFile={(id) => run(() => openJob({ data: { id } }))}
+        onDeleteFile={(id) => run(() => deleteJob({ data: { id } }))}
       />
       {itemEdit ? (
         <ItemDialog
@@ -741,18 +749,29 @@ function ChangesPanel({
   );
 }
 
+function jobTitle(name: string): string {
+  const m = name.trim().match(/^(\d+)\b/);
+  return m ? m[1] : name;
+}
+
 function JobDialog({
   open,
   onOpenChange,
   snap,
   busy,
   onSave,
+  onNew,
+  onOpenFile,
+  onDeleteFile,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   snap: JobSnapshot;
   busy: boolean;
   onSave: (data: Parameters<typeof updateJob>[0]["data"]) => void;
+  onNew: () => void;
+  onOpenFile: (id: string) => void;
+  onDeleteFile: (id: string) => void;
 }) {
   const j = snap.job;
   const [form, setForm] = useState({
@@ -802,6 +821,66 @@ function JobDialog({
             });
           }}
         >
+          <section className="rounded-lg border border-line bg-bg p-2">
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+              <p className="text-xs font-medium tracking-wide text-muted uppercase">Files</p>
+              <span className="font-mono text-xs text-subtle tabular-nums">
+                {snap.jobs.length}
+              </span>
+            </div>
+            <ul className="flex max-h-40 flex-col gap-0.5 overflow-y-auto">
+              {snap.jobs.map((file) => {
+                const current = file.id === snap.job.id;
+                return (
+                  <li key={file.id}>
+                    <div
+                      className={cn(
+                        "flex items-center gap-1 rounded-md",
+                        current ? "bg-sunken" : "hover:bg-sunken/60",
+                      )}
+                    >
+                      <button
+                        type="button"
+                        disabled={busy || current}
+                        onClick={() => onOpenFile(file.id)}
+                        className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+                      >
+                        {current ? (
+                          <Check className="size-3.5 shrink-0 text-ok" />
+                        ) : (
+                          <span className="size-3.5 shrink-0" />
+                        )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium text-ink">
+                            {file.name}
+                          </span>
+                          <span className="block truncate text-xs text-subtle">
+                            {file.address
+                              ? `${file.address}${file.city ? ` · ${file.city}` : ""}`
+                              : "No address yet"}
+                          </span>
+                        </span>
+                      </button>
+                      {snap.jobs.length > 1 ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="size-11 shrink-0 text-muted hover:text-bad"
+                          aria-label={`Delete ${file.name}`}
+                          disabled={busy}
+                          onClick={() => onDeleteFile(file.id)}
+                        >
+                          <Trash2 />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+
           <Field label="Name">
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
@@ -883,9 +962,21 @@ function JobDialog({
             </Field>
           </div>
           <NotesField value={form.notes} onChange={(notes) => setForm({ ...form, notes })} />
-          <Button type="submit" disabled={busy} className="mt-2">
-            Save job
-          </Button>
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={onNew}
+              className="sm:flex-1"
+            >
+              <FilePlus />
+              New file
+            </Button>
+            <Button type="submit" disabled={busy} className="sm:flex-1">
+              Save job
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -1241,7 +1332,7 @@ function exportCsv(snap: JobSnapshot, items: ItemRollup[]) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "505-budget.csv";
+  a.download = `${snap.job.name.replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").toLowerCase() || "job"}-budget.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

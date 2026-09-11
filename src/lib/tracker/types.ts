@@ -23,6 +23,13 @@ export type Job = {
   notes: string;
 };
 
+export type JobSummary = {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+};
+
 export type Category = {
   id: string;
   name: string;
@@ -65,6 +72,7 @@ export type ChangeOrder = {
 
 export type JobSnapshot = {
   job: Job;
+  jobs: JobSummary[];
   categories: Category[];
   items: LineItem[];
   payments: Payment[];
