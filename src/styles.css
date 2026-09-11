@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-bg: #f3efe6;
+  --color-surface: #fbf8f1;
+  --color-sunken: #e8e1d4;
+  --color-ink: #1a1814;
+  --color-muted: #6e6860;
+  --color-subtle: #8a8378;
+  --color-line: #ddd4c4;
+  --color-line-strong: #c9bda8;
+  --color-accent: #2f3d36;
+  --color-accent-fg: #f3efe6;
+  --color-ok: #2f5d43;
+  --color-ok-soft: #dce8df;
+  --color-warn: #7a5a28;
+  --color-warn-soft: #efe3c8;
+  --color-bad: #8b3a2d;
+  --color-bad-soft: #f0d8d2;
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.125rem;
+  --radius-xl: 1.5rem;
+
+  --shadow-lift: 0 1px 2px color-mix(in oklab, var(--color-ink) 6%, transparent),
+    0 8px 24px color-mix(in oklab, var(--color-ink) 5%, transparent);
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--color-bg);
+    color: var(--color-ink);
+  }
+
+  body {
+    min-height: 100dvh;
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
