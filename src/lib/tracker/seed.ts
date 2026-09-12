@@ -17,6 +17,23 @@ export const SEED_JOB = {
     "Spec two-story. Closed the lot in March. Framing is up; roof dry-in next. Watch lumber and windows — both already over.",
 };
 
+export const SEED_GARAGE = {
+  id: "18",
+  name: "18 Birch Garage",
+  address: "18 Birch Lane",
+  city: "Plainfield",
+  beds: 0,
+  bathsTenths: 0,
+  sqft: 768,
+  stories: 1,
+  landCostCents: 0,
+  targetSaleCents: 6_850_000,
+  startDate: "2026-07-08",
+  targetCloseDate: "2026-10-02",
+  notes:
+    "Detached 24×32 on the Birch lot. Slab is in, walls going up. Owner took the 9-ft carriage door — already approved. Lumber package ran a little hot.",
+};
+
 export const SEED_CATEGORIES: Array<{
   id: string;
   name: string;
@@ -46,6 +63,30 @@ type SeedItem = {
   actual: number;
   pct: number;
   notes: string;
+};
+
+type SeedPayment = {
+  itemId: number;
+  paidOn: string;
+  amount: number;
+  payee: string;
+  method: PaymentMethod;
+  memo: string;
+};
+
+type SeedCo = {
+  itemId: number;
+  title: string;
+  amount: number;
+  status: ChangeOrderStatus;
+  reason: string;
+};
+
+export type SeedJobPack = {
+  job: typeof SEED_JOB;
+  items: SeedItem[];
+  payments: SeedPayment[];
+  cos: SeedCo[];
 };
 
 export const SEED_ITEMS: SeedItem[] = [
@@ -96,14 +137,7 @@ export const SEED_ITEMS: SeedItem[] = [
   { id: 45, categoryId: "contingency", name: "Job contingency", vendor: "", original: 28000, committed: 0, actual: 0, pct: 0, notes: "Do not spend without a CO." },
 ];
 
-export const SEED_PAYMENTS: Array<{
-  itemId: number;
-  paidOn: string;
-  amount: number;
-  payee: string;
-  method: PaymentMethod;
-  memo: string;
-}> = [
+export const SEED_PAYMENTS: SeedPayment[] = [
   { itemId: 1, paidOn: "2026-03-12", amount: 92500, payee: "Westfield Title", method: "wire", memo: "Lot closing" },
   { itemId: 2, paidOn: "2026-03-18", amount: 4250, payee: "Northline Studio", method: "check", memo: "Retainer" },
   { itemId: 2, paidOn: "2026-04-22", amount: 4250, payee: "Northline Studio", method: "check", memo: "Permit set" },
@@ -134,13 +168,7 @@ export const SEED_PAYMENTS: Array<{
   { itemId: 44, paidOn: "2026-07-16", amount: 820, payee: "Roll-Off Co", method: "card", memo: "Dumpster 2" },
 ];
 
-export const SEED_COS: Array<{
-  itemId: number;
-  title: string;
-  amount: number;
-  status: ChangeOrderStatus;
-  reason: string;
-}> = [
+export const SEED_COS: SeedCo[] = [
   {
     itemId: 13,
     title: "Deeper footings at rear",
@@ -169,4 +197,53 @@ export const SEED_COS: Array<{
     status: "approved",
     reason: "Primary bath: shower only. Credit the tub.",
   },
+];
+
+export const SEED_GARAGE_ITEMS: SeedItem[] = [
+  { id: 1, categoryId: "soft", name: "Plans & permit set", vendor: "Northline Studio", original: 1450, committed: 1450, actual: 1450, pct: 100, notes: "Simple elevation + slab detail." },
+  { id: 2, categoryId: "soft", name: "Permits", vendor: "Town of Plainfield", original: 1860, committed: 1860, actual: 1860, pct: 100, notes: "Accessory structure." },
+  { id: 3, categoryId: "soft", name: "Builder's risk", vendor: "Summit Mutual", original: 540, committed: 540, actual: 540, pct: 100, notes: "Rider on the Birch policy." },
+  { id: 4, categoryId: "site", name: "Pad, gravel, grading", vendor: "Red Clay Excavating", original: 3200, committed: 3200, actual: 2980, pct: 100, notes: "Came in a little under." },
+  { id: 5, categoryId: "foundation", name: "Footings & 4-inch slab", vendor: "Keystone Concrete", original: 8600, committed: 8600, actual: 8600, pct: 100, notes: "Poured 24 Jul." },
+  { id: 6, categoryId: "foundation", name: "Rebar, mesh, vapor", vendor: "Keystone Concrete", original: 980, committed: 980, actual: 980, pct: 100, notes: "" },
+  { id: 7, categoryId: "framing", name: "Lumber package", vendor: "ABC Building Supply", original: 9200, committed: 9480, actual: 9480, pct: 100, notes: "2x6 walls, 24 oc. Package ran hot." },
+  { id: 8, categoryId: "framing", name: "Framing labor", vendor: "Calder Crew", original: 6800, committed: 6800, actual: 3400, pct: 50, notes: "Walls standing; roof next week." },
+  { id: 9, categoryId: "framing", name: "Roof trusses", vendor: "Peak Truss", original: 2650, committed: 2650, actual: 2650, pct: 100, notes: "Delivered with the lumber." },
+  { id: 10, categoryId: "envelope", name: "Roofing", vendor: "Ridge Roofing", original: 4100, committed: 4100, actual: 1400, pct: 25, notes: "Deposit; dry-in after truss set." },
+  { id: 11, categoryId: "envelope", name: "LP SmartSide", vendor: "North Face Exteriors", original: 6200, committed: 0, actual: 0, pct: 0, notes: "After wrap." },
+  { id: 12, categoryId: "envelope", name: "Overhead door", vendor: "DoorWorks", original: 2180, committed: 0, actual: 0, pct: 0, notes: "9-ft carriage upgrade on CO." },
+  { id: 13, categoryId: "envelope", name: "Walk door & windows", vendor: "Clearview Supply", original: 1540, committed: 0, actual: 0, pct: 0, notes: "Man-door + two transoms." },
+  { id: 14, categoryId: "mep", name: "Electrical", vendor: "Arc & Co.", original: 3600, committed: 0, actual: 0, pct: 0, notes: "Subpanel off the house, 6 circuits." },
+  { id: 15, categoryId: "final", name: "Approach apron", vendor: "Red Clay Excavating", original: 1800, committed: 0, actual: 0, pct: 0, notes: "Gravel now; concrete later." },
+  { id: 16, categoryId: "final", name: "Dumpster", vendor: "Roll-Off Co", original: 420, committed: 420, actual: 390, pct: 100, notes: "" },
+  { id: 17, categoryId: "contingency", name: "Job contingency", vendor: "", original: 2500, committed: 0, actual: 0, pct: 0, notes: "Hold for the door upgrade and punch." },
+];
+
+export const SEED_GARAGE_PAYMENTS: SeedPayment[] = [
+  { itemId: 1, paidOn: "2026-06-20", amount: 1450, payee: "Northline Studio", method: "check", memo: "Permit set" },
+  { itemId: 2, paidOn: "2026-07-02", amount: 1860, payee: "Town of Plainfield", method: "check", memo: "Accessory permit" },
+  { itemId: 3, paidOn: "2026-07-06", amount: 540, payee: "Summit Mutual", method: "ach", memo: "Builder's risk rider" },
+  { itemId: 16, paidOn: "2026-07-10", amount: 390, payee: "Roll-Off Co", method: "card", memo: "20-yard" },
+  { itemId: 4, paidOn: "2026-07-28", amount: 2980, payee: "Red Clay Excavating", method: "check", memo: "Draw 1 — pad" },
+  { itemId: 5, paidOn: "2026-07-28", amount: 8600, payee: "Keystone Concrete", method: "check", memo: "Draw 1 — slab" },
+  { itemId: 6, paidOn: "2026-07-28", amount: 980, payee: "Keystone Concrete", method: "check", memo: "Draw 1 — rebar" },
+  { itemId: 7, paidOn: "2026-08-26", amount: 9480, payee: "ABC Building Supply", method: "check", memo: "Draw 2 — lumber" },
+  { itemId: 9, paidOn: "2026-08-26", amount: 2650, payee: "Peak Truss", method: "check", memo: "Draw 2 — trusses" },
+  { itemId: 8, paidOn: "2026-08-26", amount: 3400, payee: "Calder Crew", method: "check", memo: "Draw 2 — framing labor" },
+  { itemId: 10, paidOn: "2026-09-04", amount: 1400, payee: "Ridge Roofing", method: "check", memo: "Roof deposit" },
+];
+
+export const SEED_GARAGE_COS: SeedCo[] = [
+  {
+    itemId: 12,
+    title: "9-ft carriage door",
+    amount: 850,
+    status: "approved",
+    reason: "Owner swapped the 8-ft raised-panel for a 9-ft carriage. Lead time still holds for October.",
+  },
+];
+
+export const SAMPLE_JOBS: SeedJobPack[] = [
+  { job: SEED_JOB, items: SEED_ITEMS, payments: SEED_PAYMENTS, cos: SEED_COS },
+  { job: SEED_GARAGE, items: SEED_GARAGE_ITEMS, payments: SEED_GARAGE_PAYMENTS, cos: SEED_GARAGE_COS },
 ];

@@ -32,6 +32,7 @@ import { itemStatus, rollupJob, type ItemRollup } from "@/lib/tracker/rollup";
 import type {
   ChangeOrder,
   ChangeOrderStatus,
+  Job,
   JobSnapshot,
   LineItem,
   PaymentMethod,
@@ -91,13 +92,9 @@ export function JobApp({ initial }: { initial: JobSnapshot }) {
                 {jobTitle(snap.job.name)}
               </p>
               <p className="mt-1 text-xs font-medium tracking-[0.22em] text-muted uppercase">
-                Spec house ledger
+                {ledgerLabel(snap.job)}
               </p>
-              <p className="mt-3 truncate text-sm text-muted">
-                {snap.job.address}
-                {snap.job.city ? ` · ${snap.job.city}` : ""} · {snap.job.beds} bed /{" "}
-                {bathsLabel(snap.job.bathsTenths)} bath · {snap.job.sqft.toLocaleString()} sf
-              </p>
+              <p className="mt-3 truncate text-sm text-muted">{jobMeta(snap.job)}</p>
             </div>
             <div className="flex shrink-0 gap-1">
               <Button
@@ -430,7 +427,9 @@ function OverviewPanel({
       <section className="rounded-xl border border-line bg-surface p-5">
         <h2 className="font-serif text-2xl text-ink">By trade</h2>
         <div className="mt-4 flex flex-col gap-4">
-          {categories.map((row) => {
+          {categories
+            .filter((row) => row.itemCount > 0)
+            .map((row) => {
             const max = Math.max(row.revisedBudgetCents, row.actualCents, 1);
             return (
               <div key={row.category.id}>
@@ -754,6 +753,23 @@ function jobTitle(name: string): string {
   return m ? m[1] : name;
 }
 
+function ledgerLabel(job: Job): string {
+  const n = job.name.toLowerCase();
+  if (n.includes("garage")) return "Garage build ledger";
+  if (n.includes("bath") || n.includes("remodel")) return "Remodel ledger";
+  if (n.includes("spec")) return "Spec house ledger";
+  return "Job ledger";
+}
+
+function jobMeta(job: Job): string {
+  const bits: string[] = [];
+  if (job.address) bits.push(job.city ? `${job.address} · ${job.city}` : job.address);
+  else if (job.city) bits.push(job.city);
+  if (job.beds > 0) bits.push(`${job.beds} bed / ${bathsLabel(job.bathsTenths)} bath`);
+  if (job.sqft > 0) bits.push(`${job.sqft.toLocaleString()} sf`);
+  return bits.join(" · ");
+}
+
 function JobDialog({
   open,
   onOpenChange,
@@ -909,9 +925,9 @@ function JobDialog({
                 value={String(form.bathsTenths)}
                 onChange={(e) => setForm({ ...form, bathsTenths: Number(e.target.value) })}
               >
-                {[10, 15, 20, 25, 30, 35, 40, 45, 50].map((n) => (
+                {[0, 10, 15, 20, 25, 30, 35, 40, 45, 50].map((n) => (
                   <option key={n} value={n}>
-                    {n % 10 === 0 ? n / 10 : (n / 10).toFixed(1)}
+                    {n === 0 ? "—" : n % 10 === 0 ? n / 10 : (n / 10).toFixed(1)}
                   </option>
                 ))}
               </NativeSelect>

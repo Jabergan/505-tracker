@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { getSql } from "@/lib/db";
-import { SEED_CATEGORIES, SEED_COS, SEED_ITEMS, SEED_JOB, SEED_PAYMENTS } from "./seed";
+import { SAMPLE_JOBS, SEED_CATEGORIES, SEED_JOB } from "./seed";
+import type { SeedJobPack } from "./seed";
 import type {
   Category,
   CategoryKind,
@@ -176,50 +177,44 @@ async function currentJobId(): Promise<string> {
   return id;
 }
 
-async function ensureSeed(): Promise<void> {
+async function seedJobIfMissing(pack: SeedJobPack): Promise<void> {
   const sql = await getSql();
-  const existing = await sql<{ c: number }>`select count(*)::int as c from job`;
-  if ((existing[0]?.c ?? 0) > 0) return;
+  const found = await sql<{ id: string }>`select id from job where id = ${pack.job.id}`;
+  if (found[0]) return;
 
+  const j = pack.job;
   await sql.query(
     `insert into job (
       id, name, address, city, beds, baths_tenths, sqft, stories,
       land_cost_cents, target_sale_cents, start_date, target_close_date, notes
     ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     [
-      SEED_JOB.id,
-      SEED_JOB.name,
-      SEED_JOB.address,
-      SEED_JOB.city,
-      SEED_JOB.beds,
-      SEED_JOB.bathsTenths,
-      SEED_JOB.sqft,
-      SEED_JOB.stories,
-      SEED_JOB.landCostCents,
-      SEED_JOB.targetSaleCents,
-      SEED_JOB.startDate,
-      SEED_JOB.targetCloseDate,
-      SEED_JOB.notes,
+      j.id,
+      j.name,
+      j.address,
+      j.city,
+      j.beds,
+      j.bathsTenths,
+      j.sqft,
+      j.stories,
+      j.landCostCents,
+      j.targetSaleCents,
+      j.startDate,
+      j.targetCloseDate,
+      j.notes,
     ],
   );
 
-  for (const cat of SEED_CATEGORIES) {
-    await sql.query(
-      `insert into categories (id, name, sort_order, kind) values ($1,$2,$3,$4)
-       on conflict (id) do nothing`,
-      [cat.id, cat.name, cat.sortOrder, cat.kind],
-    );
-  }
-
-  for (const item of SEED_ITEMS) {
-    await sql.query(
+  const idMap = new Map<number, number>();
+  for (const item of pack.items) {
+    const inserted = await sql.query<{ id: number }>(
       `insert into line_items (
-        id, job_id, category_id, name, vendor, original_budget_cents, committed_cents,
+        job_id, category_id, name, vendor, original_budget_cents, committed_cents,
         actual_cents, pct_complete, notes, sort_order
-      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      returning id`,
       [
-        item.id,
-        SEED_JOB.id,
+        j.id,
         item.categoryId,
         item.name,
         item.vendor,
@@ -231,25 +226,54 @@ async function ensureSeed(): Promise<void> {
         item.id,
       ],
     );
+    const newId = inserted[0]?.id;
+    if (newId != null) idMap.set(item.id, newId);
   }
 
-  for (const p of SEED_PAYMENTS) {
+  for (const p of pack.payments) {
+    const lineId = idMap.get(p.itemId);
+    if (lineId == null) continue;
     await sql.query(
       `insert into payments (line_item_id, paid_on, amount_cents, payee, method, memo)
        values ($1,$2,$3,$4,$5,$6)`,
-      [p.itemId, p.paidOn, Math.round(p.amount * 100), p.payee, p.method, p.memo],
+      [lineId, p.paidOn, Math.round(p.amount * 100), p.payee, p.method, p.memo],
     );
   }
 
-  for (const co of SEED_COS) {
+  for (const co of pack.cos) {
+    const lineId = idMap.get(co.itemId) ?? null;
     await sql.query(
       `insert into change_orders (job_id, line_item_id, title, amount_cents, status, reason)
        values ($1,$2,$3,$4,$5,$6)`,
-      [SEED_JOB.id, co.itemId, co.title, Math.round(co.amount * 100), co.status, co.reason],
+      [j.id, lineId, co.title, Math.round(co.amount * 100), co.status, co.reason],
+    );
+  }
+}
+
+async function ensureSeed(): Promise<void> {
+  const sql = await getSql();
+
+  for (const cat of SEED_CATEGORIES) {
+    await sql.query(
+      `insert into categories (id, name, sort_order, kind) values ($1,$2,$3,$4)
+       on conflict (id) do nothing`,
+      [cat.id, cat.name, cat.sortOrder, cat.kind],
     );
   }
 
-  await setCurrentJobId(SEED_JOB.id);
+  for (const pack of SAMPLE_JOBS) {
+    await seedJobIfMissing(pack);
+  }
+
+  const state = await sql<{ value: string }>`
+    select value from app_state where key = 'current_job_id'
+  `;
+  if (!state[0]?.value) {
+    const prefer = await sql<{ id: string }>`select id from job where id = ${SEED_JOB.id}`;
+    const fallback = await sql<{ id: string }>`select id from job order by updated_at desc limit 1`;
+    const id = prefer[0]?.id ?? fallback[0]?.id;
+    if (id) await setCurrentJobId(id);
+  }
 
   try {
     await sql.query(`select setval('line_items_id_seq', (select max(id) from line_items))`);
