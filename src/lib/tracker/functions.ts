@@ -169,7 +169,10 @@ async function currentJobId(): Promise<string> {
   const state = await sql<{ value: string }>`
     select value from app_state where key = 'current_job_id'
   `;
-  if (state[0]?.value) return state[0].value;
+  if (state[0]?.value) {
+    const still = await sql<{ id: string }>`select id from job where id = ${state[0].value}`;
+    if (still[0]) return state[0].value;
+  }
   const jobs = await sql<{ id: string }>`select id from job order by updated_at desc limit 1`;
   const id = jobs[0]?.id;
   if (!id) throw new Error("No job file");
@@ -261,8 +264,13 @@ async function ensureSeed(): Promise<void> {
     );
   }
 
-  for (const pack of SAMPLE_JOBS) {
-    await seedJobIfMissing(pack);
+  // Samples only on an empty ledger (first boot). Trash is permanent —
+  // deleting 505 or 18 must not resurrect them on the next request.
+  const existing = await sql<{ c: number }>`select count(*)::int as c from job`;
+  if ((existing[0]?.c ?? 0) === 0) {
+    for (const pack of SAMPLE_JOBS) {
+      await seedJobIfMissing(pack);
+    }
   }
 
   const state = await sql<{ value: string }>`

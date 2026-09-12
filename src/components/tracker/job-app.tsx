@@ -790,6 +790,7 @@ function JobDialog({
   onDeleteFile: (id: string) => void;
 }) {
   const j = snap.job;
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const [form, setForm] = useState({
     name: j.name,
     address: j.address,
@@ -820,12 +821,50 @@ function JobDialog({
         targetCloseDate: j.targetCloseDate ?? "",
         notes: j.notes,
       });
+    } else {
+      setPendingDelete(null);
     }
   }, [open, j]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent title="Job file">
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) setPendingDelete(null);
+        onOpenChange(v);
+      }}
+    >
+      <DialogContent title={pendingDelete ? "Delete file" : "Job file"}>
+        {pendingDelete ? (
+          <div className="flex flex-col gap-4">
+            <p className="text-sm leading-relaxed text-muted">
+              Delete {pendingDelete.name}? This cannot be undone.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setPendingDelete(null)}
+                className="sm:flex-1"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  const id = pendingDelete.id;
+                  setPendingDelete(null);
+                  onDeleteFile(id);
+                }}
+                className="bg-bad text-accent-fg hover:opacity-90 sm:flex-1"
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
+        ) : (
         <form
           className="flex flex-col gap-3"
           onSubmit={(e) => {
@@ -885,7 +924,7 @@ function JobDialog({
                           className="size-11 shrink-0 text-muted hover:text-bad"
                           aria-label={`Delete ${file.name}`}
                           disabled={busy}
-                          onClick={() => onDeleteFile(file.id)}
+                          onClick={() => setPendingDelete({ id: file.id, name: file.name })}
                         >
                           <Trash2 />
                         </Button>
@@ -994,6 +1033,7 @@ function JobDialog({
             </Button>
           </div>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   );
